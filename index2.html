@@ -1,0 +1,945 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-HK">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>香港咪錶位資訊</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.css" />
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/MarkerCluster.Default.css" />
+<style>
+  :root{
+    --ink:#16232a;
+    --ink-soft:#4b5c62;
+    --bg:#f3f5f2;
+    --surface:#ffffff;
+    --line:#dfe4de;
+    --teal:#0f5e59;
+    --teal-dark:#0a413d;
+    --teal-tint:#e2efec;
+    --vacant:#2f8f55;
+    --occupied:#b5482e;
+    --unknown:#8b969a;
+    --warn:#b98b29;
+    --radius:14px;
+    --shadow:0 6px 24px rgba(15,40,38,.14);
+    font-family: "Noto Sans HK","Noto Sans TC",-apple-system,"Segoe UI",sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);}
+  #app{position:fixed;inset:0;display:flex;flex-direction:column;}
+
+  header.topbar{
+    background:var(--teal-dark);
+    color:#f4faf9;
+    padding:12px 18px;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    flex-wrap:wrap;
+    z-index:1200;
+    box-shadow:0 2px 10px rgba(0,0,0,.18);
+  }
+  .brand{display:flex;flex-direction:column;line-height:1.25;}
+  .brand h1{margin:0;font-size:19px;font-weight:700;letter-spacing:.2px;}
+  .brand p{margin:2px 0 0;font-size:12px;color:#bcd7d2;}
+  .status-pills{display:flex;gap:8px;flex-wrap:wrap;}
+  .pill{
+    font-size:11.5px;
+    padding:5px 10px;
+    border-radius:999px;
+    background:rgba(255,255,255,.08);
+    border:1px solid rgba(255,255,255,.18);
+    color:#e7f3f1;
+    display:flex;align-items:center;gap:6px;
+    white-space:nowrap;
+  }
+  .dot{width:7px;height:7px;border-radius:50%;flex:none;}
+  .dot.ok{background:#59c98a;}
+  .dot.bad{background:#e2694f;}
+  .dot.loading{background:#f0c75e;animation:pulse 1.1s infinite ease-in-out;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+
+  main{flex:1;position:relative;min-height:0;}
+  #map{position:absolute;inset:0;background:#dfe6e2;}
+
+  /* Control panel */
+  #panel{
+    position:absolute;top:14px;left:14px;
+    width:300px;max-width:calc(100vw - 28px);
+    background:var(--surface);
+    border-radius:var(--radius);
+    box-shadow:var(--shadow);
+    z-index:900;
+    max-height:calc(100% - 100px);
+    overflow-y:auto;
+    border:1px solid var(--line);
+  }
+  #panel .panel-head{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:14px 16px 6px;
+  }
+  #panel h2{margin:0;font-size:15px;font-weight:700;}
+  #panelToggle{
+    display:none;
+  }
+  .section{padding:10px 16px 14px;border-top:1px solid var(--line);}
+  .section:first-of-type{border-top:none;}
+  .section h3{margin:0 0 8px;font-size:12.5px;color:var(--ink-soft);font-weight:700;}
+
+  .layer-row{
+    display:flex;align-items:flex-start;gap:10px;
+    padding:8px 0;
+    cursor:pointer;
+  }
+  .layer-row input{margin-top:3px;accent-color:var(--teal);width:16px;height:16px;flex:none;}
+  .layer-row .layer-text{display:flex;flex-direction:column;gap:1px;}
+  .layer-row .layer-title{font-size:13.5px;font-weight:600;}
+  .layer-row .layer-desc{font-size:11.5px;color:var(--ink-soft);line-height:1.4;}
+
+  select, input[type="text"]{
+    width:100%;
+    padding:8px 10px;
+    border-radius:9px;
+    border:1px solid var(--line);
+    font-size:13px;
+    background:#fbfcfa;
+    color:var(--ink);
+    margin-top:4px;
+  }
+  select:focus, input[type="text"]:focus{outline:2px solid var(--teal);outline-offset:1px;}
+
+  .legend-row{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:3px 0;}
+  .swatch{width:12px;height:12px;border-radius:50%;flex:none;border:1px solid rgba(0,0,0,.15);}
+
+  .field-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+
+  .stat-line{font-size:12px;color:var(--ink-soft);margin-top:6px;}
+  .stat-line b{color:var(--ink);}
+
+  /* Popup styling */
+  .leaflet-popup-content-wrapper{border-radius:12px;}
+  .popup-card{font-size:13px;min-width:230px;max-width:280px;}
+  .popup-card h4{margin:0 0 4px;font-size:14.5px;color:var(--teal-dark);}
+  .popup-card .sub{font-size:11.5px;color:var(--ink-soft);margin-bottom:8px;}
+  .popup-card table{width:100%;border-collapse:collapse;font-size:12.3px;}
+  .popup-card td{padding:3px 0;vertical-align:top;}
+  .popup-card td.k{color:var(--ink-soft);width:38%;white-space:nowrap;}
+  .badge{
+    display:inline-flex;align-items:center;gap:5px;
+    padding:3px 9px;border-radius:999px;font-size:12px;font-weight:700;
+    margin-bottom:6px;
+  }
+  .badge.vacant{background:#e5f3ea;color:var(--vacant);}
+  .badge.occupied{background:#f7e7e2;color:var(--occupied);}
+  .badge.unknown{background:#eef0ef;color:var(--unknown);}
+  .note-box{
+    margin-top:8px;padding:8px 9px;border-radius:8px;
+    background:#f4f6f2;font-size:11.6px;color:var(--ink-soft);line-height:1.5;
+    border:1px dashed var(--line);
+  }
+  .popup-card .src{font-size:10.8px;color:#8a9490;margin-top:8px;}
+  .popup-card .src a{color:var(--teal);}
+
+  /* mobile bottom sheet */
+  @media (max-width: 720px){
+    .brand p{display:none;}
+    #panel{
+      top:auto;left:0;right:0;bottom:0;width:100%;max-width:100%;
+      border-radius:16px 16px 0 0;
+      max-height:62vh;
+      transform:translateY(calc(100% - 54px));
+      transition:transform .25s ease;
+    }
+    #panel.open{transform:translateY(0);}
+    #panel .panel-head{cursor:pointer;}
+    #panelToggle{display:block;font-size:12px;color:var(--teal);font-weight:700;}
+  }
+
+  /* toast / status footer */
+  #footerBar{
+    position:absolute;bottom:10px;right:10px;left:auto;
+    z-index:850;display:flex;flex-direction:column;gap:6px;align-items:flex-end;
+  }
+  @media (max-width:720px){
+    #footerBar{right:10px;bottom:calc(54px + 10px);}
+  }
+  .toast{
+    background:var(--surface);border:1px solid var(--line);
+    border-radius:10px;box-shadow:var(--shadow);
+    padding:9px 13px;font-size:12px;max-width:280px;line-height:1.5;
+  }
+  .toast.error{border-color:#e6b7ab;background:#fdf1ee;color:#7c3a29;}
+  .toast.warn{border-color:#e9d8ae;background:#fdf8ea;color:#7a5c17;}
+
+  .loading-overlay{
+    position:absolute;inset:0;background:rgba(243,245,242,.88);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:14px;z-index:2000;
+  }
+  .spinner{
+    width:38px;height:38px;border-radius:50%;
+    border:4px solid var(--teal-tint);border-top-color:var(--teal);
+    animation:spin 0.9s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .loading-overlay p{font-size:13.5px;color:var(--ink-soft);margin:0;text-align:center;padding:0 20px;}
+
+  a{color:var(--teal);}
+  .link-row{font-size:12px;color:var(--ink-soft);margin-top:8px;line-height:1.6;}
+  .link-row a{display:block;}
+
+  ::-webkit-scrollbar{width:8px;}
+  ::-webkit-scrollbar-thumb{background:#c9d2cd;border-radius:4px;}
+
+  /* 搜尋結果下拉列表 */
+  .search-results{
+    position:absolute;
+    left:0;right:0;top:calc(100% + 4px);
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:10px;
+    box-shadow:var(--shadow);
+    max-height:260px;
+    overflow-y:auto;
+    z-index:1500;
+    display:none;
+  }
+  .search-results.open{display:block;}
+  .search-result-item{
+    display:flex;flex-direction:column;gap:1px;
+    padding:9px 12px;
+    cursor:pointer;
+    border-bottom:1px solid var(--line);
+  }
+  .search-result-item:last-child{border-bottom:none;}
+  .search-result-item:hover, .search-result-item.highlight{background:var(--teal-tint);}
+  .search-result-item .r-title{font-size:13px;font-weight:600;color:var(--ink);}
+  .search-result-item .r-sub{font-size:11.3px;color:var(--ink-soft);}
+  .search-result-empty{
+    padding:12px;font-size:12.5px;color:var(--ink-soft);text-align:center;
+  }
+
+  /* 定位按鈕（仿 Google 地圖風格） */
+  #locateBtn{
+    position:absolute;
+    right:14px;
+    bottom:34px;
+    z-index:900;
+    width:42px;height:42px;
+    border-radius:50%;
+    background:var(--surface);
+    border:1px solid var(--line);
+    box-shadow:var(--shadow);
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;
+    color:var(--ink-soft);
+    transition:background .15s ease, color .15s ease;
+  }
+  #locateBtn:hover{background:var(--teal-tint);}
+  #locateBtn.active{color:var(--teal);}
+  #locateBtn svg{width:22px;height:22px;}
+  #locateBtn.locating svg{animation:spin 1s linear infinite;}
+  @media (max-width:720px){
+    #locateBtn{bottom:calc(54px + 14px);}
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <div class="brand">
+      <h1>香港咪錶位資訊</h1>
+      <p>咪錶泊車位分佈與智能咪錶實時使用情況</p>
+    </div>
+    <div class="status-pills" id="statusPills">
+      <span class="pill"><span class="dot loading" id="dotSpaces"></span><span id="txtSpaces">泊車位資料載入中…</span></span>
+      <span class="pill"><span class="dot loading" id="dotOcc"></span><span id="txtOcc">咪錶使用情況載入中…</span></span>
+    </div>
+  </header>
+
+  <main>
+    <div id="map"></div>
+
+    <div id="panel">
+      <div class="panel-head" onclick="if(window.innerWidth<=720){document.getElementById('panel').classList.toggle('open')}">
+        <h2>圖層與篩選</h2>
+        <span id="panelToggle">展開 ▲</span>
+      </div>
+
+      <div class="section">
+        <h3>資料圖層</h3>
+        <label class="layer-row">
+          <input type="checkbox" id="layerSpaces" checked>
+          <span class="layer-text">
+            <span class="layer-title">咪錶泊車位位置</span>
+            <span class="layer-desc">全港所有咪錶泊車位（包括現有及新式咪錶）</span>
+          </span>
+        </label>
+        <label class="layer-row">
+          <input type="checkbox" id="layerOcc" checked>
+          <span class="layer-text">
+            <span class="layer-title">智能咪錶使用情況</span>
+            <span class="layer-desc">已裝設新式感應咪錶的車位，實時顯示空置 / 已佔用</span>
+          </span>
+        </label>
+      </div>
+
+      <div class="section">
+        <h3>篩選地區</h3>
+        <div class="field-grid">
+          <div>
+            <label style="font-size:11.5px;color:var(--ink-soft);">地域</label>
+            <select id="regionSelect"><option value="">全部地域</option></select>
+          </div>
+          <div>
+            <label style="font-size:11.5px;color:var(--ink-soft);">分區</label>
+            <select id="districtSelect"><option value="">全部分區</option></select>
+          </div>
+        </div>
+        <label style="font-size:11.5px;color:var(--ink-soft);display:block;margin-top:8px;">搜尋街道名稱</label>
+        <div style="position:relative;">
+          <input type="text" id="streetSearch" placeholder="例如：彌敦道 / Nathan Road" autocomplete="off">
+          <div id="searchResults" class="search-results"></div>
+        </div>
+        <div class="stat-line" id="statLine">顯示中：—</div>
+      </div>
+
+      <div class="section">
+        <h3>圖例</h3>
+        <div class="legend-row"><span class="swatch" style="background:var(--teal);"></span>咪錶泊車位（位置圖層）</div>
+        <div class="legend-row"><span class="swatch" style="background:var(--vacant);"></span>智能咪錶 · 現時空置</div>
+        <div class="legend-row"><span class="swatch" style="background:var(--occupied);"></span>智能咪錶 · 現時已佔用</div>
+        <div class="legend-row"><span class="swatch" style="background:var(--unknown);"></span>智能咪錶 · 狀態暫時未明</div>
+      </div>
+
+      <div class="section">
+        <h3>資料來源</h3>
+        <div class="link-row">
+          <a href="https://data.gov.hk/tc-data/dataset/hk-td-msd_1-metered-parking-spaces-data" target="_blank" rel="noopener">運輸署：咪錶泊車位分佈及使用情況（資料一線通）</a>
+          <a href="https://resource.data.one.gov.hk/td/psiparkingspaces/spaceinfo/parkingspaces.csv" target="_blank" rel="noopener">→ 咪錶泊車位分佈 CSV（原始連結）</a>
+          <a href="https://resource.data.one.gov.hk/td/psiparkingspaces/occupancystatus/occupancystatus.csv" target="_blank" rel="noopener">→ 智能咪錶使用情況 CSV（原始連結）</a>
+          <a href="https://portal.csdi.gov.hk/geoportal/?datasetId=td_rcd_1638930345315_81787" target="_blank" rel="noopener">→ 空間數據共享平台（CSDI）版本</a>
+        </div>
+      </div>
+    </div>
+
+    <button id="locateBtn" title="顯示你的位置" aria-label="顯示你的位置">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M12 2v3M12 19v3M2 12h3M19 12h3"></path>
+        <circle cx="12" cy="12" r="8"></circle>
+      </svg>
+    </button>
+
+    <div id="footerBar"></div>
+
+    <div class="loading-overlay" id="loadingOverlay">
+      <div class="spinner"></div>
+      <p id="loadingText">正在從運輸署資料一線通下載最新咪錶位資料，請稍候…<br>(檔案較大，視乎網絡速度可能需時數秒至一分鐘)</p>
+    </div>
+  </main>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/leaflet.markercluster.js"></script>
+<script>
+/* ============================================================
+   香港咪錶位資訊 — 資料來源均為運輸署 / 資料一線通 真實 CSV
+   1) 全港咪錶泊車位分佈：
+      https://resource.data.one.gov.hk/td/psiparkingspaces/spaceinfo/parkingspaces.csv
+   2) 智能咪錶使用情況（僅涵蓋已裝設新式咪錶的車位）：
+      https://resource.data.one.gov.hk/td/psiparkingspaces/occupancystatus/occupancystatus.csv
+   本網站不使用任何虛構或模擬資料；若資料無法取得，會如實顯示錯誤狀態。
+   ============================================================ */
+
+const SPACE_CSV_URL = 'https://resource.data.one.gov.hk/td/psiparkingspaces/spaceinfo/parkingspaces.csv';
+const OCC_CSV_URL    = 'https://resource.data.one.gov.hk/td/psiparkingspaces/occupancystatus/occupancystatus.csv';
+// 若瀏覽器直接讀取政府伺服器時遇上 CORS 限制，會自動改用以下公開唯讀代理重試一次
+const CORS_FALLBACK = (url) => 'https://corsproxy.io/?' + encodeURIComponent(url);
+
+let spacesById = new Map();      // ParkingSpaceId -> space record
+let occById = new Map();         // ParkingSpaceId -> occupancy record
+let spaceMarkers = [];           // {marker, rec}
+let occMarkers = [];             // {marker, rec, spaceRec}
+
+let spacesReady = false, occReady = false;
+
+function setPill(dotId, textId, state, text){
+  document.getElementById(dotId).className = 'dot ' + state;
+  document.getElementById(textId).textContent = text;
+}
+
+function addToast(kind, html, ttl){
+  const bar = document.getElementById('footerBar');
+  const el = document.createElement('div');
+  el.className = 'toast' + (kind ? (' ' + kind) : '');
+  el.innerHTML = html;
+  bar.appendChild(el);
+  if (ttl) setTimeout(()=>{ el.remove(); }, ttl);
+}
+
+function updateLoadingText(t){
+  const el = document.getElementById('loadingText');
+  if (el) el.innerHTML = t;
+}
+
+function maybeHideOverlay(){
+  if (spacesReady){
+    const ov = document.getElementById('loadingOverlay');
+    if (ov) ov.remove();
+  }
+}
+
+/* ---------- CSV parsing (支援雙引號包住的欄位及內含逗號的情況) ---------- */
+function parseCSVLine(line){
+  const out = [];
+  let cur = '', inQ = false;
+  for (let i=0;i<line.length;i++){
+    const c = line[i];
+    if (c === '"'){
+      if (inQ && line[i+1] === '"'){ cur+='"'; i++; }
+      else inQ = !inQ;
+    } else if (c === ',' && !inQ){
+      out.push(cur); cur='';
+    } else cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+
+function parseCSV(text){
+  // 移除 BOM
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const lines = text.split(/\r\n|\n/).filter(l => l.length > 0);
+  return lines.map(parseCSVLine);
+}
+
+async function fetchText(url){
+  try{
+    const res = await fetch(url, {cache:'no-store'});
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return await res.text();
+  } catch(primaryErr){
+    // CORS 或網絡問題時，改用唯讀代理重試一次
+    try{
+      const res2 = await fetch(CORS_FALLBACK(url), {cache:'no-store'});
+      if (!res2.ok) throw new Error('HTTP ' + res2.status);
+      return await res2.text();
+    } catch(fallbackErr){
+      throw primaryErr;
+    }
+  }
+}
+
+/* ---------- 地圖初始化 ---------- */
+const map = L.map('map', {preferCanvas:true, zoomControl:false}).setView([22.3193, 114.1694], 12);
+L.control.zoom({position:'bottomleft'}).addTo(map);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+  maxZoom:19,
+  attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> 貢獻者 &copy; <a href="https://carto.com/attributions">CARTO</a>'
+}).addTo(map);
+
+const spacesCluster = L.markerClusterGroup({
+  chunkedLoading:true, chunkInterval:40, chunkDelay:30,
+  maxClusterRadius:55, disableClusteringAtZoom:18,
+  spiderfyOnMaxZoom:true, showCoverageOnHover:false
+});
+const occCluster = L.markerClusterGroup({
+  chunkedLoading:true, chunkInterval:40, chunkDelay:30,
+  maxClusterRadius:55, disableClusteringAtZoom:18,
+  spiderfyOnMaxZoom:true, showCoverageOnHover:false
+});
+spacesCluster.addTo(map);
+occCluster.addTo(map);
+
+/* ---------- 版面呈現 ---------- */
+function fullLocationName(rec){
+  const parts = [];
+  if (rec.Region_tc) parts.push(rec.Region_tc);
+  if (rec.District_tc) parts.push(rec.District_tc);
+  if (rec.SubDistrict_tc) parts.push(rec.SubDistrict_tc);
+  return parts.join(' · ');
+}
+function streetName(rec){
+  let s = rec.Street_tc || rec.Street || '';
+  if (rec.SectionOfStreet_tc || rec.SectionOfStreet) s += '（' + (rec.SectionOfStreet_tc || rec.SectionOfStreet) + '）';
+  return s;
+}
+
+function spacePopupHTML(rec){
+  const occ = occById.get(rec.ParkingSpaceId);
+  let statusHTML = '';
+  if (occ){
+    const isVacant = occ.OccupancyStatus === 'V';
+    const isOcc = occ.OccupancyStatus === 'O';
+    const cls = isVacant ? 'vacant' : (isOcc ? 'occupied' : 'unknown');
+    const label = isVacant ? '現時空置' : (isOcc ? '現時已佔用' : '狀態未明（代碼：' + occ.OccupancyStatus + '）');
+    statusHTML = `<div class="badge ${cls}">● ${label}</div>
+      <table>
+        <tr><td class="k">最後更新時間</td><td>${occ.OccupancyDateChanged || '未提供'}</td></tr>
+        <tr><td class="k">咪錶運作狀態</td><td>代碼 ${occ.ParkingMeterStatus || '未提供'}（N=正常運作，NU=暫未有資料，詳情請參閱數據字典）</td></tr>
+      </table>
+      <div class="note-box">此車位已裝設新式感應咪錶，資料由運輸署每分鐘至每日更新一次。</div>`;
+  } else {
+    statusHTML = `<div class="badge unknown">● 非智能咪錶</div>
+      <div class="note-box">此車位屬現有（舊式）咪錶，運輸署暫未提供此車位的實時使用情況資料。<br><br>
+      本網站亦未能提供咪錶現場相片：運輸署資料一線通及空間數據共享平台目前並無公開的咪錶現場影像 API，為避免顯示虛構內容，此功能未有實作。</div>`;
+  }
+
+  return `<div class="popup-card">
+    <h4>${streetName(rec)}</h4>
+    <div class="sub">${fullLocationName(rec)}</div>
+    ${statusHTML}
+    <table style="margin-top:8px;">
+      <tr><td class="k">車位編號</td><td>${rec.ParkingSpaceId}</td></tr>
+      <tr><td class="k">車輛類別代碼</td><td>${rec.VehicleType || '未提供'}</td></tr>
+      <tr><td class="k">首時段收費</td><td>${rec.LPP ? ('HK$' + rec.LPP) : '未提供'}</td></tr>
+      <tr><td class="k">運作時段代碼</td><td>${rec.OperatingPeriod || '未提供'}</td></tr>
+      <tr><td class="k">收費時間單位</td><td>${rec.TimeUnit ? rec.TimeUnit + ' 分鐘' : '未提供'}</td></tr>
+    </table>
+    <div class="src">代碼詳細定義請參閱
+      <a href="https://www.td.gov.hk/datagovhk_td/metered-parking-spaces-data/resources/tc/dataspec/metered_parking_spaces_data_dataspec.pdf" target="_blank" rel="noopener">運輸署數據字典</a>。
+      資料來源：運輸署 / 資料一線通。
+    </div>
+  </div>`;
+}
+
+function makeSpaceMarker(rec){
+  const m = L.circleMarker([rec.lat, rec.lng], {
+    radius:5, weight:1, color:'#ffffff', fillColor:getComputedStyle(document.documentElement).getPropertyValue('--teal').trim(),
+    fillOpacity:0.9
+  });
+  m.bindPopup(() => spacePopupHTML(rec));
+  return m;
+}
+function occColor(status){
+  if (status === 'V') return getComputedStyle(document.documentElement).getPropertyValue('--vacant').trim();
+  if (status === 'O') return getComputedStyle(document.documentElement).getPropertyValue('--occupied').trim();
+  return getComputedStyle(document.documentElement).getPropertyValue('--unknown').trim();
+}
+function makeOccMarker(rec, spaceRec){
+  const m = L.circleMarker([spaceRec.lat, spaceRec.lng], {
+    radius:6, weight:1.2, color:'#ffffff', fillColor:occColor(rec.OccupancyStatus), fillOpacity:0.95
+  });
+  m.bindPopup(() => spacePopupHTML(spaceRec));
+  return m;
+}
+
+/* ---------- 篩選 / 搜尋邏輯 ---------- */
+const regionMap = new Map(); // region_tc -> Set(district_tc)
+function collectFilterOptions(){
+  spacesById.forEach(rec=>{
+    if (!rec.Region_tc) return;
+    if (!regionMap.has(rec.Region_tc)) regionMap.set(rec.Region_tc, new Set());
+    if (rec.District_tc) regionMap.get(rec.Region_tc).add(rec.District_tc);
+  });
+  const regionSelect = document.getElementById('regionSelect');
+  [...regionMap.keys()].sort().forEach(r=>{
+    const opt = document.createElement('option'); opt.value = r; opt.textContent = r;
+    regionSelect.appendChild(opt);
+  });
+}
+function refreshDistrictOptions(){
+  const region = document.getElementById('regionSelect').value;
+  const districtSelect = document.getElementById('districtSelect');
+  districtSelect.innerHTML = '<option value="">全部分區</option>';
+  if (region && regionMap.has(region)){
+    [...regionMap.get(region)].sort().forEach(d=>{
+      const opt = document.createElement('option'); opt.value = d; opt.textContent = d;
+      districtSelect.appendChild(opt);
+    });
+  }
+}
+
+/* ---------- 街道搜尋索引（依街道 + 路段 + 分區分組） ---------- */
+let streetIndex = [];
+function buildStreetIndex(){
+  const groups = new Map();
+  spacesById.forEach(rec=>{
+    const streetLabel = (rec.Street_tc || rec.Street || '').trim();
+    if (!streetLabel) return;
+    const sectionLabel = (rec.SectionOfStreet_tc || rec.SectionOfStreet || '').trim();
+    const key = [streetLabel, sectionLabel, rec.District_tc].join('|');
+    if (!groups.has(key)){
+      groups.set(key, {
+        streetLabel, sectionLabel,
+        districtLabel: rec.District_tc || '', regionLabel: rec.Region_tc || '',
+        lat: rec.lat, lng: rec.lng,
+        sampleRec: rec,
+        count: 0,
+        searchText: (streetLabel + ' ' + sectionLabel + ' ' + (rec.Street||'') + ' ' + (rec.SectionOfStreet||'') + ' ' + (rec.District_tc||'')).toLowerCase()
+      });
+    }
+    groups.get(key).count++;
+  });
+  streetIndex = [...groups.values()].sort((a,b)=> a.streetLabel.localeCompare(b.streetLabel, 'zh-Hant'));
+}
+
+const searchResultsEl = document.getElementById('searchResults');
+let searchResultItems = [];
+let searchHighlightIdx = -1;
+
+function closeSearchResults(){
+  searchResultsEl.classList.remove('open');
+  searchResultsEl.innerHTML = '';
+  searchResultItems = [];
+  searchHighlightIdx = -1;
+}
+
+function renderSearchResults(query){
+  if (!query){ closeSearchResults(); return; }
+  const q = query.toLowerCase();
+  const matches = streetIndex.filter(g => g.searchText.includes(q)).slice(0, 20);
+  searchResultItems = matches;
+  searchHighlightIdx = -1;
+
+  if (!matches.length){
+    searchResultsEl.innerHTML = `<div class="search-result-empty">找不到符合「${query}」的街道</div>`;
+    searchResultsEl.classList.add('open');
+    return;
+  }
+
+  searchResultsEl.innerHTML = matches.map((g, i)=>{
+    const sectionTxt = g.sectionLabel ? `（${g.sectionLabel}）` : '';
+    return `<div class="search-result-item" data-idx="${i}">
+      <span class="r-title">${g.streetLabel}${sectionTxt}</span>
+      <span class="r-sub">${g.regionLabel} · ${g.districtLabel} · 共 ${g.count} 個咪錶位</span>
+    </div>`;
+  }).join('');
+  searchResultsEl.classList.add('open');
+
+  [...searchResultsEl.querySelectorAll('.search-result-item')].forEach(el=>{
+    el.addEventListener('click', ()=> selectSearchResult(parseInt(el.dataset.idx, 10)));
+  });
+}
+
+function selectSearchResult(i){
+  const g = searchResultItems[i];
+  if (!g) return;
+  document.getElementById('streetSearch').value = g.streetLabel;
+  closeSearchResults();
+  applyFilters();
+  // 移動地圖到該街道位置並放大，方便直接看到咪錶位
+  map.setView([g.lat, g.lng], 18);
+  // 短延遲確保 marker 已加入地圖後才嘗試開啟彈出視窗
+  setTimeout(()=>{
+    const hit = spaceMarkers.find(({rec})=> rec === g.sampleRec);
+    if (hit) hit.marker.openPopup();
+  }, 200);
+  if (window.innerWidth <= 720) document.getElementById('panel').classList.remove('open');
+}
+
+function updateHighlight(){
+  const items = [...searchResultsEl.querySelectorAll('.search-result-item')];
+  items.forEach((el,i)=> el.classList.toggle('highlight', i === searchHighlightIdx));
+  if (searchHighlightIdx >= 0 && items[searchHighlightIdx]){
+    items[searchHighlightIdx].scrollIntoView({block:'nearest'});
+  }
+}
+
+function currentFilter(){
+  return {
+    region: document.getElementById('regionSelect').value,
+    district: document.getElementById('districtSelect').value,
+    street: document.getElementById('streetSearch').value.trim().toLowerCase()
+  };
+}
+function matchFilter(rec, f){
+  if (f.region && rec.Region_tc !== f.region) return false;
+  if (f.district && rec.District_tc !== f.district) return false;
+  if (f.street){
+    const hay = ((rec.Street_tc||'') + ' ' + (rec.Street||'') + ' ' + (rec.SectionOfStreet_tc||'') + ' ' + (rec.SectionOfStreet||'')).toLowerCase();
+    if (!hay.includes(f.street)) return false;
+  }
+  return true;
+}
+
+function applyFilters(){
+  const f = currentFilter();
+  const showSpaces = document.getElementById('layerSpaces').checked;
+  const showOcc = document.getElementById('layerOcc').checked;
+
+  spacesCluster.clearLayers();
+  occCluster.clearLayers();
+
+  let shown = 0, occShown = 0;
+  if (showSpaces){
+    const toAdd = [];
+    spaceMarkers.forEach(({marker, rec})=>{
+      if (matchFilter(rec, f)){ toAdd.push(marker); shown++; }
+    });
+    spacesCluster.addLayers(toAdd);
+  }
+  if (showOcc){
+    const toAdd = [];
+    occMarkers.forEach(({marker, rec, spaceRec})=>{
+      if (matchFilter(spaceRec, f)){ toAdd.push(marker); occShown++; }
+    });
+    occCluster.addLayers(toAdd);
+  }
+
+  document.getElementById('statLine').textContent =
+    `顯示中：${shown.toLocaleString()} 個咪錶位置` + (showOcc ? `，${occShown.toLocaleString()} 個智能咪錶狀態` : '');
+}
+
+document.getElementById('layerSpaces').addEventListener('change', applyFilters);
+document.getElementById('layerOcc').addEventListener('change', applyFilters);
+document.getElementById('regionSelect').addEventListener('change', ()=>{ refreshDistrictOptions(); applyFilters(); });
+document.getElementById('districtSelect').addEventListener('change', applyFilters);
+let searchDebounce;
+const streetSearchInput = document.getElementById('streetSearch');
+streetSearchInput.addEventListener('input', ()=>{
+  clearTimeout(searchDebounce);
+  const val = streetSearchInput.value.trim();
+  searchDebounce = setTimeout(()=>{
+    applyFilters();
+    renderSearchResults(val);
+  }, 220);
+});
+streetSearchInput.addEventListener('focus', ()=>{
+  if (streetSearchInput.value.trim()) renderSearchResults(streetSearchInput.value.trim());
+});
+streetSearchInput.addEventListener('keydown', (e)=>{
+  if (!searchResultItems.length) return;
+  if (e.key === 'ArrowDown'){
+    e.preventDefault();
+    searchHighlightIdx = Math.min(searchHighlightIdx + 1, searchResultItems.length - 1);
+    updateHighlight();
+  } else if (e.key === 'ArrowUp'){
+    e.preventDefault();
+    searchHighlightIdx = Math.max(searchHighlightIdx - 1, 0);
+    updateHighlight();
+  } else if (e.key === 'Enter'){
+    e.preventDefault();
+    if (searchHighlightIdx >= 0) selectSearchResult(searchHighlightIdx);
+    else if (searchResultItems.length === 1) selectSearchResult(0);
+  } else if (e.key === 'Escape'){
+    closeSearchResults();
+  }
+});
+document.addEventListener('click', (e)=>{
+  if (!e.target.closest('#searchResults') && e.target !== streetSearchInput) closeSearchResults();
+});
+
+/* ---------- 載入：咪錶泊車位分佈 ---------- */
+async function loadSpaces(){
+  try{
+    setPill('dotSpaces','txtSpaces','loading','泊車位資料載入中…');
+    const text = await fetchText(SPACE_CSV_URL);
+    const rows = parseCSV(text);
+    // 第一行通常是更新日期，第二行為空白分隔，第三行起為標題
+    let headerIdx = rows.findIndex(r => r[0] === 'PoleId');
+    if (headerIdx === -1) throw new Error('無法辨識咪錶泊車位 CSV 的標題列格式');
+    const header = rows[headerIdx];
+    const dateLine = rows[0] && rows[0][0] && /^\d{4}-\d{2}-\d{2}$/.test(rows[0][0]) ? rows[0][0] : null;
+    const idx = {};
+    header.forEach((h,i)=>idx[h.trim()] = i);
+
+    let count = 0;
+    for (let i = headerIdx+1; i<rows.length; i++){
+      const r = rows[i];
+      if (!r || r.length < header.length - 2) continue;
+      const lat = parseFloat(r[idx['Latitude']]);
+      const lng = parseFloat(r[idx['Longitude']]);
+      if (!isFinite(lat) || !isFinite(lng)) continue;
+      const rec = {
+        PoleId: r[idx['PoleId']],
+        ParkingSpaceId: r[idx['ParkingSpaceId']],
+        Region: r[idx['Region']], Region_tc: r[idx['Region_tc']],
+        District: r[idx['District']], District_tc: r[idx['District_tc']],
+        SubDistrict: r[idx['SubDistrict']], SubDistrict_tc: r[idx['SubDistrict_tc']],
+        Street: r[idx['Street']], Street_tc: r[idx['Street_tc']],
+        SectionOfStreet: r[idx['SectionOfStreet']], SectionOfStreet_tc: r[idx['SectionOfStreet_tc']],
+        lat, lng,
+        VehicleType: r[idx['VehicleType']],
+        LPP: r[idx['LPP']],
+        OperatingPeriod: r[idx['OperatingPeriod']],
+        TimeUnit: r[idx['TimeUnit']],
+        PaymentUnit: r[idx['PaymentUnit']]
+      };
+      spacesById.set(rec.ParkingSpaceId, rec);
+      count++;
+    }
+
+    // 建立 marker（先建立物件，實際加入地圖交由 applyFilters 依篩選 / 圖層狀態決定）
+    spacesById.forEach(rec=>{
+      spaceMarkers.push({marker: makeSpaceMarker(rec), rec});
+    });
+
+    collectFilterOptions();
+    buildStreetIndex();
+    spacesReady = true;
+    setPill('dotSpaces','txtSpaces','ok', `咪錶泊車位：共 ${count.toLocaleString()} 個` + (dateLine ? `（資料日期 ${dateLine}）` : ''));
+    maybeHideOverlay();
+    applyFilters();
+  } catch(err){
+    console.error(err);
+    setPill('dotSpaces','txtSpaces','bad','咪錶泊車位資料讀取失敗');
+    addToast('error', `<b>咪錶泊車位分佈資料讀取失敗</b><br>無法連接運輸署資料一線通伺服器，或瀏覽器封鎖跨網域請求（CORS）。<br>錯誤詳情：${(err && err.message) || err}<br>你可以<a href="${SPACE_CSV_URL}" target="_blank" rel="noopener">直接開啟原始資料連結</a>重試。`);
+    updateLoadingText('咪錶泊車位資料讀取失敗，請檢查網絡連線或稍後重試。');
+    setTimeout(()=>{ const ov = document.getElementById('loadingOverlay'); if (ov) ov.remove(); }, 4000);
+  }
+}
+
+/* ---------- 載入：智能咪錶使用情況 ---------- */
+async function loadOccupancy(){
+  try{
+    setPill('dotOcc','txtOcc','loading','咪錶使用情況載入中…');
+    const text = await fetchText(OCC_CSV_URL);
+    const rows = parseCSV(text);
+    if (!rows.length || rows[0][0] !== 'ParkingSpaceId') throw new Error('無法辨識咪錶使用情況 CSV 的標題列格式');
+    const header = rows[0];
+    const idx = {};
+    header.forEach((h,i)=>idx[h.trim()] = i);
+
+    let count = 0, vacant = 0, occupied = 0;
+    for (let i=1;i<rows.length;i++){
+      const r = rows[i];
+      if (!r || r.length < 4) continue;
+      const rec = {
+        ParkingSpaceId: r[idx['ParkingSpaceId']],
+        ParkingMeterStatus: r[idx['ParkingMeterStatus']],
+        OccupancyStatus: r[idx['OccupancyStatus']],
+        OccupancyDateChanged: r[idx['OccupancyDateChanged']]
+      };
+      occById.set(rec.ParkingSpaceId, rec);
+      if (rec.OccupancyStatus === 'V') vacant++;
+      else if (rec.OccupancyStatus === 'O') occupied++;
+      count++;
+    }
+
+    // 等待 spacesById 就緒後才能對應座標
+    const waitForSpaces = () => new Promise(resolve=>{
+      const check = ()=> spacesReady ? resolve() : setTimeout(check, 150);
+      check();
+    });
+    await waitForSpaces();
+
+    let matched = 0;
+    occById.forEach((rec, spaceId)=>{
+      const spaceRec = spacesById.get(spaceId);
+      if (!spaceRec) return; // 沒有對應座標，無法在地圖上顯示
+      occMarkers.push({marker: makeOccMarker(rec, spaceRec), rec, spaceRec});
+      matched++;
+    });
+
+    occReady = true;
+    setPill('dotOcc','txtOcc','ok', `智能咪錶：${matched.toLocaleString()} 個（空置 ${vacant.toLocaleString()} · 已佔用 ${occupied.toLocaleString()}）`);
+    applyFilters();
+  } catch(err){
+    console.error(err);
+    setPill('dotOcc','txtOcc','bad','咪錶使用情況資料讀取失敗');
+    addToast('warn', `<b>智能咪錶使用情況資料暫時無法取得</b><br>咪錶位置圖層不受影響，惟目前未能顯示實時空置 / 已佔用狀態。<br>錯誤詳情：${(err && err.message) || err}<br><a href="${OCC_CSV_URL}" target="_blank" rel="noopener">開啟原始資料連結重試</a>`);
+  }
+}
+
+/* ---------- 顯示你的位置 ---------- */
+let myLocationMarker = null, myLocationCircle = null, watchId = null;
+
+function clearMyLocation(){
+  if (myLocationMarker){ map.removeLayer(myLocationMarker); myLocationMarker = null; }
+  if (myLocationCircle){ map.removeLayer(myLocationCircle); myLocationCircle = null; }
+}
+
+function showMyLocation(lat, lng, accuracy){
+  clearMyLocation();
+  myLocationCircle = L.circle([lat, lng], {
+    radius: accuracy || 30,
+    color:'#1a73e8', weight:1, fillColor:'#1a73e8', fillOpacity:0.15
+  }).addTo(map);
+  myLocationMarker = L.circleMarker([lat, lng], {
+    radius:8, weight:3, color:'#ffffff', fillColor:'#1a73e8', fillOpacity:1
+  }).addTo(map);
+  myLocationMarker.bindPopup('你目前的位置<br><span style="font-size:11px;color:#8a9490;">準確度約 ' + Math.round(accuracy||0) + ' 米（瀏覽器提供，非官方資料）</span>');
+}
+
+const locateBtn = document.getElementById('locateBtn');
+
+function diagnoseAndLocate(){
+  // 1) 瀏覽器完全不支援
+  if (!('geolocation' in navigator)){
+    addToast('error', '<b>無法取得你的位置</b><br>此瀏覽器不支援地理定位功能，請改用其他瀏覽器。', 6000);
+    return;
+  }
+  // 2) 非安全來源（例如以 file:// 方式直接開啟本檔案，或非 HTTPS 網站）
+  //    大部分瀏覽器（尤其 Chrome）會直接拒絕在非安全來源使用定位
+  const isFileProtocol = location.protocol === 'file:';
+  const isSecure = window.isSecureContext === true;
+  if (isFileProtocol || !isSecure){
+    addToast('error',
+      `<b>定位失敗：目前頁面不是安全來源</b><br>
+      瀏覽器規定「顯示你的位置」功能只能在 HTTPS 網站或 localhost 上使用。<br>
+      你現在的網址開頭是 <code>${location.protocol}//</code>${isFileProtocol ? '（即直接用檔案總管打開本機檔案）' : ''}，所以瀏覽器會直接拒絕定位請求，並非本網站的錯誤。<br><br>
+      解決方法：把此檔案放到任何支援 HTTPS 的網頁伺服器（或本機的 <code>http://localhost</code>）上開啟，即可使用此功能。`,
+      15000);
+    return;
+  }
+
+  if (watchId !== null){
+    // 再次點擊即取消持續定位
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
+    locateBtn.classList.remove('active','locating');
+    return;
+  }
+
+  locateBtn.classList.add('locating');
+  let firstFix = true;
+  let settled = false;
+
+  // 部分瀏覽器在權限被封鎖時可能長時間沒有回應，加一個保底逾時提示
+  const fallbackTimer = setTimeout(()=>{
+    if (!settled){
+      locateBtn.classList.remove('locating');
+      addToast('warn', '<b>定位需時較長</b><br>瀏覽器仍在等待位置權限回應，請留意瀏覽器網址列附近是否有「允許存取位置」的彈出視窗。', 8000);
+    }
+  }, 8000);
+
+  watchId = navigator.geolocation.watchPosition(
+    (pos)=>{
+      settled = true;
+      clearTimeout(fallbackTimer);
+      const { latitude, longitude, accuracy } = pos.coords;
+      locateBtn.classList.remove('locating');
+      locateBtn.classList.add('active');
+      showMyLocation(latitude, longitude, accuracy);
+      if (firstFix){
+        map.setView([latitude, longitude], 16);
+        firstFix = false;
+      }
+    },
+    (err)=>{
+      settled = true;
+      clearTimeout(fallbackTimer);
+      locateBtn.classList.remove('locating','active');
+      watchId = null;
+      let msg = '無法取得你的位置。';
+      if (err.code === err.PERMISSION_DENIED){
+        msg = '你已拒絕（或瀏覽器/裝置設定封鎖）位置存取權限。請到瀏覽器網址列左側的網站權限設定，將「位置」改為「允許」，然後重新整理頁面再試。手機另需確認系統設定中已為此瀏覽器開啟定位服務。';
+      } else if (err.code === err.POSITION_UNAVAILABLE){
+        msg = '裝置目前無法判斷位置（例如室內收不到 GPS／Wi-Fi 定位訊號）。請移到室外或訊號較好的地方再試。';
+      } else if (err.code === err.TIMEOUT){
+        msg = '定位請求逾時，可能是訊號太弱。請重試一次。';
+      }
+      addToast('error', `<b>定位失敗</b><br>${msg}<br><span style="color:#8a9490;font-size:11px;">瀏覽器回報：${err.message || ('錯誤代碼 ' + err.code)}</span>`, 9000);
+    },
+    { enableHighAccuracy:true, timeout:12000, maximumAge:10000 }
+  );
+}
+
+locateBtn.addEventListener('click', diagnoseAndLocate);
+
+loadSpaces();
+loadOccupancy();
+
+// 每 2 分鐘自動重新整理智能咪錶使用情況（貼近其「每分鐘至每日」更新頻率）
+setInterval(()=>{
+  occMarkers = [];
+  occById.clear();
+  loadOccupancy();
+}, 120000);
+</script>
+</body>
+</html>
